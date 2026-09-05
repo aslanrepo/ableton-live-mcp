@@ -42,7 +42,7 @@ def test_tool_registration():
     tools = asyncio.run(mcp.list_tools())
     names = [t.name for t in tools]
     assert len(names) == len(set(names)), "duplicate tool names"
-    assert len(names) == 154, f"expected 154 tools, README/manifest say 154, got {len(names)}"
+    assert len(names) == 156, f"expected 156 tools, README/manifest say 156, got {len(names)}"
     for expected in (
         "get_session_info",
         "set_track_volume",
@@ -83,6 +83,15 @@ def test_version_consistency():
     assert server["packages"][0]["version"] == __version__
     assert len(server["description"]) <= 100, "Official MCP Registry limit"
     assert server["websiteUrl"] == "https://abletonmcp.com"
+    # The unpublished plugin is a separate local development artifact.
+    plugin_path = root / "plugins/ableton-live/.codex-plugin/plugin.json"
+    if plugin_path.is_file():
+        plugin = json.loads(plugin_path.read_text())
+        assert plugin["version"] == __version__
+        config = json.loads((root / "plugins/ableton-live/.mcp.json").read_text())
+        assert config["mcpServers"]["ableton"]["args"] == [f"mcp-server-ableton-live@{__version__}"]
+    script = (root / "ableton_live_mcp/remote_script/__init__.py").read_text()
+    assert f'BRIDGE_VERSION = "{__version__}"' in script
 
 
 def test_glama_reviewed_tools_have_documented_input_schemas():

@@ -11,9 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5
-      - run: uvx ruff check .
+      - run: uv run --frozen --extra dev ruff check .
+      - run: uv run --frozen --extra dev ruff format --check .
       - run: python3 -m py_compile ableton_live_mcp/remote_script/__init__.py
-      - run: uv run --extra dev pytest -q
+      - run: uv run --frozen --extra dev pytest -q
 
   publish:
     needs: test

@@ -39,7 +39,13 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
         logger.info("AbletonMCP server shut down")
 
 
-INSTRUCTIONS = """Control Ableton Live via a Remote Script socket. Conventions:
+INSTRUCTIONS = """Control Ableton Live locally. Read session/target state before editing and verify
+changes afterwards. Replacing notes, samples or arrangement regions can destroy
+musical content; preserve the original and confirm targets. A timeout is not proof
+an edit failed: inspect state before retrying. Offline .als tools work with Live
+closed. Mix heuristics are not measured audio; decoded sample peak/RMS is not LUFS.
+
+Conventions:
 
 - ALL indices are 0-based: track_index, clip_index (session slot), scene_index,
   return_index (0 = Return A), device_index (position in the track's chain).

@@ -11,7 +11,7 @@
 **Website and installation guide: [abletonmcp.com](https://abletonmcp.com)**
 
 Control Ableton Live from an AI assistant. This is a Model Context Protocol (MCP)
-server that gives Claude, Cursor, Codex, or any MCP client 154 tools for building
+server that gives Claude, Cursor, Codex, or any MCP client 156 tools for building
 tracks, editing MIDI, loading instruments and effects, mixing, and mastering inside
 a running Ableton Live set, plus offline tools that read and diff saved `.als`
 project files with Live closed.
@@ -27,10 +27,19 @@ You need Ableton Live 11 or 12, Python 3.10+, and [uv](https://docs.astral.sh/uv
 
 **1. Register the MCP server.**
 
+Codex (local desktop, CLI or IDE host):
+
+```bash
+codex mcp add ableton -- uvx mcp-server-ableton-live@1.8.0
+codex mcp list
+```
+
+For manual configuration and troubleshooting, see the [Codex guide](https://abletonmcp.com/docs/codex/).
+
 Claude Code:
 
 ```bash
-claude mcp add AbletonMCP -s user -- uvx mcp-server-ableton-live
+claude mcp add AbletonMCP -s user -- uvx mcp-server-ableton-live@1.8.0
 ```
 
 Claude Desktop or Cursor, in the `mcpServers` block of the config file:
@@ -40,7 +49,7 @@ Claude Desktop or Cursor, in the `mcpServers` block of the config file:
   "mcpServers": {
     "AbletonMCP": {
       "command": "uvx",
-      "args": ["mcp-server-ableton-live"]
+      "args": ["mcp-server-ableton-live@1.8.0"]
     }
   }
 }
@@ -53,11 +62,27 @@ Claude Desktop or Cursor, in the `mcpServers` block of the config file:
 Library:
 
 ```bash
-uvx mcp-server-ableton-live install
+uvx mcp-server-ableton-live@1.8.0 install
 ```
 
-Then restart Live and set Settings > Link/Tempo/MIDI > Control Surface to `AbletonMCP`
-(Input and Output: None). Run the installer again after upgrading the package so
+Then activate the bridge in Live:
+
+1. Fully restart Ableton Live.
+2. Open **Settings > Tempo & MIDI**, then find the **MIDI** section and its
+   **Control Surface** list.
+3. In an unused **Control Surface** row, select **AbletonMCP**. Leave existing
+   hardware controller rows unchanged.
+4. In that same row, set **Input: None** and **Output: None**.
+
+Link is a separate Settings page in current Live versions. In older versions, look
+under **Link, Tempo & MIDI** (or **Link/MIDI**) in Settings/Preferences, then find
+the MIDI section.
+
+This selection is required for every MCP client. Installation copies
+the Remote Script; selecting the Control Surface starts it inside Live. The bridge
+uses a local socket, so its row does not need hardware MIDI input/output ports.
+
+Run the installer again after upgrading the package so
 the Live-side script stays version-matched. See Ableton's
 [guide to third-party Remote Scripts](https://help.ableton.com/hc/en-us/articles/209072009-Installing-third-party-remote-scripts)
 if the entry does not appear.
@@ -65,10 +90,16 @@ if the entry does not appear.
 **3. Check the setup.**
 
 ```bash
-uvx mcp-server-ableton-live doctor
+uvx mcp-server-ableton-live@1.8.0 doctor --json
 ```
 
-**4. Ask for music.** For example: "Make a lofi beat at 80 BPM with a dusty drum kit,
+Use the same `--user-library "/path/to/User Library"` for install and doctor if your
+library has moved. If an older/different script exists, installation stops: review
+it before adding `--replace`. A unique backup is retained. Restart Live before
+diagnosing; doctor checks both installed bytes and the running bridge version.
+
+**4. Start read-only.** Ask for the tempo and track names without changes. Then,
+in a disposable set, try: "Make a lofi beat at 80 BPM with a dusty drum kit,
 an upright bass, and Rhodes chords, then put a limiter on the master at -1 dB."
 
 ## What it can do
@@ -98,9 +129,24 @@ Every action is a specific tool with validated arguments; there is no arbitrary-
 path. Some tools still make destructive edits (delete a track, replace a clip's
 notes, overwrite an arrangement region), so save your work before a big session.
 
+## Audio analysis and session changes
+
+`analyze_audio_file` reads WAV (integer and floating point), AIFF/AIFF-C, FLAC,
+Ogg Vorbis, MP3, AAC and M4A/MP4 (AAC or Apple Lossless) locally. The package installs
+the PyAV decoder dependency. It preserves the file, sample rate, channel layout and
+floating-point headroom; compressed files are measured after decoding. Analysis
+covers the first 30 seconds by default (up to 120 seconds, with a 32-million-sample
+processing budget), and reports when the result is partial. Measurements include
+sample peak and RMS, not LUFS or true peak.
+
+`session_diff` distinguishes renames, reordering and duplicate track names using
+identifiers from the running bridge. Call it before and after an edit; the first
+call establishes the comparison baseline. Installing an updated Remote Script and
+restarting Live keeps the bridge's snapshot format matched to the server.
+
 ## Focusing the toolset
 
-The server registers 154 tools. That is a lot for a model to choose from on a small
+The server registers 156 tools. That is a lot for a model to choose from on a small
 task. Set `ABLETON_TOOLSETS` to load only the groups you need, for example
 `ABLETON_TOOLSETS=session,tracks,clips,generators`. Groups (each may span several modules): `session`, `tracks`, `clips`, `devices`,
 `browser`, `arrangement`, `generators`, `audio`, `analysis`, `offline`, `recipes`.
@@ -172,7 +218,7 @@ saved `.als` projects.
 
 ### How is this different from other Ableton MCP servers?
 
-This server exposes 154 specific, validated tools rather than an arbitrary-code
+This server exposes 156 specific, validated tools rather than an arbitrary-code
 execution tool. It includes destructive/read-only hints, workflow prompts, built-in
 music generators, mixing and analysis tools, and offline `.als`/`.adg` inspection.
 The Remote Script and MCP package are versioned and tested together.

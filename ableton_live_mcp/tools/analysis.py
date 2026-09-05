@@ -13,7 +13,6 @@ from mcp.types import ToolAnnotations
 from ..app import mcp
 from ..connection import get_ableton_connection
 from ._groups import GROUP_DESCRIPTIONS
-from ._util import keyed_by_name as _keyed_by_name
 
 _CONVENTIONS = [
     "Indices are 0-based; times and lengths are in beats.",
@@ -37,7 +36,7 @@ def mix_findings(snapshot):
             {
                 "code": "many_loud_tracks",
                 "severity": "warn",
-                "message": f"{len(loud)} tracks are pushed above 0 dB (fader >= 0.9), leaving little headroom: {loud}",
+                "message": f"{len(loud)} unmuted tracks have faders >= 0.9: {loud}. Measure output before judging headroom; fader positions alone do not establish signal level.",
             }
         )
 
@@ -46,7 +45,7 @@ def mix_findings(snapshot):
             {
                 "code": "nothing_playing",
                 "severity": "warn",
-                "message": "No unmuted track has any Session clips, so nothing will play in Session view.",
+                "message": "No unmuted Session clips found. Arrangement playback, monitoring or live input may still produce audio.",
             }
         )
 
@@ -58,7 +57,7 @@ def mix_findings(snapshot):
                     "code": "midi_no_instrument",
                     "severity": "warn",
                     "track": name,
-                    "message": f"MIDI track '{name}' has no instrument, so it makes no sound.",
+                    "message": f"MIDI track '{name}' has no reported devices. Check whether it intentionally routes MIDI to another instrument.",
                 }
             )
         if t.get("muted"):
@@ -84,14 +83,17 @@ def mix_findings(snapshot):
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def analyze_mix(ctx: Context) -> str:
-    """Scan the current live set for likely mix problems: several tracks at or
-    above 0 dB (no headroom), a muted or empty track, a MIDI track with no
-    instrument, or nothing that will actually play. Returns machine-readable
+    """Heuristic session-state checks, NOT audio, peak, LUFS or headroom measurements.
+    Scan the current live set for inspection leads: several high faders, a muted
+    or empty Session track, or a MIDI track without devices. External routing and
+    Arrangement audio may explain these states. Returns machine-readable
     findings so you can decide what to fix. Reads the session; changes nothing."""
     snapshot = get_ableton_connection().send_command("get_session_snapshot")
     findings = mix_findings(snapshot)
     return json.dumps(
         {
+            "evidence": "heuristic",
+            "limitations": "Session/fader state only. Does not measure audio, clipping, LUFS or true peak.",
             "track_count": snapshot.get("track_count"),
             "issue_count": len(findings),
             "issues": findings,
@@ -109,20 +111,41 @@ def _snapshot_delta(prev, cur):
     for k in ("tempo", "time_signature", "is_playing"):
         if prev.get(k) != cur.get(k):
             changes[k] = {"from": prev.get(k), "to": cur.get(k)}
-    pa = _keyed_by_name(prev.get("tracks", []))
-    cb = _keyed_by_name(cur.get("tracks", []))
-    changes["tracks_added"] = [n for n in cb if n not in pa]
-    changes["tracks_removed"] = [n for n in pa if n not in cb]
+    before, after = prev.get("tracks", []), cur.get("tracks", [])
+    if (
+        not prev.get("snapshot_scope")
+        or prev.get("snapshot_scope") != cur.get("snapshot_scope")
+        or any("id" not in t for t in before + after)
+        or len({t["id"] for t in before}) != len(before)
+        or len({t["id"] for t in after}) != len(after)
+    ):
+        changes["track_identity_available"] = False
+        changes["warning"] = (
+            "Track identity cannot be compared across these snapshots. "
+            "No track additions, removals or renames inferred; inspect tracks directly."
+        )
+        return changes
+    pa = {t["id"]: t for t in before}
+    cb = {t["id"]: t for t in after}
+    changes["tracks_added"] = [cb[i]["name"] for i in cb if i not in pa]
+    changes["tracks_removed"] = [pa[i]["name"] for i in pa if i not in cb]
+    changes["tracks_renamed"] = [
+        {"id": i, "from": pa[i]["name"], "to": cb[i]["name"]}
+        for i in cb
+        if i in pa and pa[i]["name"] != cb[i]["name"]
+    ]
     modified = []
-    for name in pa.keys() & cb.keys():
-        a, b = pa[name], cb[name]
+    for identity in cb:
+        if identity not in pa:
+            continue
+        a, b = pa[identity], cb[identity]
         delta = {
             k: {"from": a.get(k), "to": b.get(k)}
-            for k in ("muted", "soloed", "armed", "volume", "clips", "devices")
+            for k in ("index", "muted", "soloed", "armed", "volume", "clips", "devices")
             if a.get(k) != b.get(k)
         }
         if delta:
-            modified.append({"track": name, **delta})
+            modified.append({"id": identity, "track": b["name"], **delta})
     changes["tracks_modified"] = modified
     return changes
 
@@ -130,13 +153,14 @@ def _snapshot_delta(prev, cur):
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def session_diff(ctx: Context) -> str:
     """Report what changed in the set since the LAST time you called this tool:
-    tempo/time-signature/play-state, tracks added or removed, and per-track volume,
+    tempo/time-signature/play-state, tracks added, removed, renamed or reordered, and per-track volume,
     mute, solo, arm, clip-count, and device changes. The first call records a
-    baseline (no diff). Call it before and after an edit to verify it took effect."""
+    baseline (no diff). Track IDs are scoped to the running bridge; older bridges
+    cannot identify renames reliably. Call it before and after an edit to verify it took effect."""
     cur = get_ableton_connection().send_command("get_session_snapshot")
     prev = _LAST_SNAPSHOT["data"]
     _LAST_SNAPSHOT["data"] = cur
-    if prev is None:
+    if prev is None or prev.get("snapshot_scope") != cur.get("snapshot_scope"):
         return json.dumps({"baseline": True, "track_count": cur.get("track_count")}, indent=2)
     return json.dumps({"changes": _snapshot_delta(prev, cur)}, indent=2)
 

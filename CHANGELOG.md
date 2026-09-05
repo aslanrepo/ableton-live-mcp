@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.8.0 — 2026-09-05
+
+- Dedicated Codex setup guide with a version-pinned local MCP connection.
+- Installer creates missing Remote Scripts under an existing User Library, supports
+  explicit custom libraries, refuses different scripts unless `--replace` is given,
+  and preserves uniquely named backups. Uninstall retains a recovery copy.
+- `doctor --json` checks installed bytes, successful JSON responses, and the version
+  of the running bridge. Session info reports bridge and full Live versions.
+- Device setters accept native numbers, exact enum labels, and supported display
+  values (Hz/kHz/ms/s/dB/%). Conversion is bounded and read-only before a single
+  write; unsupported mappings fail. Readback includes clamping/conversion warnings.
+- `analyze_audio_file`: bounded local WAV (integer/float), AIFF/AIFF-C, FLAC, Ogg,
+  MP3, AAC and M4A/MP4 analysis using the packaged PyAV decoder dependency. Preserves
+  original files and float headroom; measures decoded audio without upload, LUFS or
+  true-peak claims. `analyze_mix` explicitly
+  labels its results as heuristics.
+- `replace_simpler_sample`: Live 12.4+ runtime capability gate; unavailable APIs
+  fail before changing a device.
+- `session_diff`: bridge-scoped track identities distinguish renames and reordering
+  from additions/deletions, including tracks with duplicate names. Restart Live after
+  installing the matching Remote Script.
+- Deterministic tool catalogue export for website documentation. 156 tools total.
+- Refreshed dependency lock and added security floors for the MCP/CLI dependencies
+  flagged by the release audit. Upgraded to MCP SDK 1.29.1 within the v1 API family.
+
 ## 1.7.3
 
 - Made [abletonmcp.com](https://abletonmcp.com) the project homepage and

@@ -46,14 +46,23 @@ def get_device_parameters(ctx: Context, track_index: int, device_index: int) -> 
 
 def _set_param(command: str, prefix: str, **wire_params) -> str:
     r = get_ableton_connection().send_command(command, wire_params)
-    return f"{prefix}{r.get('device')}: {r.get('parameter')} = {r.get('display', r.get('value'))}"
+    result = f"{prefix}{r.get('device')}: {r.get('parameter')} = {r.get('display', r.get('value'))}"
+    if r.get("warning"):
+        result += f" (Warning: {r['warning']})"
+    return result
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
 def set_device_parameter(
-    ctx: Context, track_index: int, device_index: int, parameter: str | int, value: float
+    ctx: Context,
+    track_index: TrackIndex,
+    device_index: DeviceIndex,
+    parameter: DeviceParameter,
+    value: DeviceParameterValue,
 ) -> str:
-    """Set a device parameter by name or index. Value is clamped to the parameter's min/max."""
+    """Set a parameter after reading get_device_parameters. Numbers use the native range;
+    strings use display units ('250 Hz', '-6 dB') or exact enum labels. Unsupported
+    display mappings fail before writing. Returns Live's actual readback and warnings."""
     return _set_param(
         "set_device_parameter",
         "",
@@ -128,7 +137,9 @@ def set_master_device_parameter(
     """Set one enabled parameter on a device in the Master track's chain.
 
     Call get_master_device_parameters first and use its parameter name/index and
-    native min/max; out-of-range values are clamped. This affects the full mix.
+    native min/max; numeric out-of-range values are clamped. Display strings with
+    supported units or exact enum labels also work; unsupported mappings fail
+    before writing. This affects the full mix. Read back the resulting display.
     Use set_device_parameter for a regular track or
     set_return_device_parameter for a return track.
     """
@@ -152,7 +163,9 @@ def set_return_device_parameter(
     """Set one enabled parameter on a device in a return track's chain.
 
     Call get_return_device_parameters first and use its parameter name/index and
-    native min/max; out-of-range values are clamped. Use set_device_parameter for
+    native min/max; numeric out-of-range values are clamped. Supported display-unit
+    strings and exact enum labels also work; unsupported mappings fail before writing.
+    Use set_device_parameter for
     a regular track or set_master_device_parameter for the full-mix chain.
     """
     return _set_param(
@@ -273,6 +286,23 @@ def set_simpler_playback_mode(ctx: Context, track_index: int, device_index: int,
         {"track_index": track_index, "device_index": device_index, "mode": mode},
     )
     return f"Simpler '{r.get('device')}' playback mode: {r.get('playback_mode')}"
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+def replace_simpler_sample(
+    ctx: Context, track_index: TrackIndex, device_index: DeviceIndex, path: str
+) -> str:
+    """Replace a Simpler sample with an absolute local audio-file path. Requires Live 12.4+
+    AND runtime API support; otherwise fails before writing. Replaces musical content:
+    confirm the target and preserve the original set. Readback is not an audio audition.
+    """
+    return json.dumps(
+        get_ableton_connection().send_command(
+            "replace_simpler_sample",
+            {"track_index": track_index, "device_index": device_index, "path": path},
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

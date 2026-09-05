@@ -30,7 +30,8 @@ SOCKET_HEADROOM = 5.0
 
 _NOT_CONNECTED_MSG = (
     "Not connected to Ableton. Start Live, select AbletonMCP as the "
-    "Control Surface (Settings > Link/Tempo/MIDI), and run "
+    "Control Surface (Settings > Tempo & MIDI > MIDI; older versions: "
+    "Link, Tempo & MIDI or Link/MIDI > MIDI), set Input/Output to None, and run "
     "`ableton-live-mcp doctor`."
 )
 

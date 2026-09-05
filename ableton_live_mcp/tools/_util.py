@@ -68,11 +68,11 @@ DeviceParameter = Annotated[
     ),
 ]
 DeviceParameterValue = Annotated[
-    float,
+    float | str,
     Field(
         description=(
-            "Value in the parameter's native range; the server clamps it to the min/max "
-            "reported by the matching get_*_device_parameters tool."
+            "Native number (clamped/quantized), exact enum label, or display text with "
+            "Hz/kHz/ms/s/dB/% units, e.g. '250 Hz'. Unsupported mappings fail before writing."
         )
     ),
 ]

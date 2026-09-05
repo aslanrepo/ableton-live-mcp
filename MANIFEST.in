@@ -1,0 +1,6 @@
+include CHANGELOG.md SECURITY.md CONTRIBUTING.md
+include manifest.json server.json glama.json
+include scripts/export_tool_catalog.py
+prune plugins
+exclude RELEASE_CHECKLIST.md
+exclude scripts/package_plugin.py

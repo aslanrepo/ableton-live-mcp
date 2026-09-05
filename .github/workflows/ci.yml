@@ -13,8 +13,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Lint
         run: uv run --extra dev ruff check .
-      - name: Format check (server + tests)
-        run: uv run --extra dev ruff format --check ableton_live_mcp tests
+      - name: Format check (all Python files)
+        run: uv run --extra dev ruff format --check .
       - name: Byte-compile remote script
         run: python3 -m py_compile ableton_live_mcp/remote_script/__init__.py
 

@@ -8,12 +8,15 @@ port 9877 and dispatches JSON commands to the Live API on the main thread.
 
 import codecs
 import json
+import math
 import os
 import queue
+import re
 import socket
 import threading
 import time
 import traceback
+import uuid
 
 from _Framework.ControlSurface import ControlSurface
 
@@ -24,6 +27,74 @@ from _Framework.ControlSurface import ControlSurface
 DEFAULT_PORT = int(os.environ.get("ABLETON_MCP_PORT", "9877"))
 HOST = os.environ.get("ABLETON_MCP_HOST", "127.0.0.1")
 MAX_REQUEST_BYTES = 10 * 1024 * 1024  # backstop against a poisoned request buffer
+BRIDGE_VERSION = "1.8.0"
+
+
+def _display_number(text):
+    match = re.fullmatch(r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(Hz|kHz|ms|s|dB|%)\s*", str(text), re.I)
+    if not match:
+        raise ValueError("Use a native number, exact enum label, or Hz/kHz/ms/s/dB/% display text")
+    value, unit = float(match.group(1)), match.group(2).lower()
+    if unit == "khz":
+        value, unit = value * 1000, "hz"
+    elif unit == "s":
+        value, unit = value * 1000, "ms"
+    if not math.isfinite(value):
+        raise ValueError("Display value must be finite")
+    return value, unit
+
+
+def _parameter_value(param, requested):
+    """Resolve display text without speculative writes; reject ambiguous mappings."""
+    low, high = float(param.min), float(param.max)
+    if not math.isfinite(low) or not math.isfinite(high) or low > high:
+        raise ValueError("Invalid parameter range")
+    if not isinstance(requested, str):
+        raw = float(requested)
+        if not math.isfinite(raw):
+            raise ValueError("Parameter value must be finite")
+        clamped = max(low, min(high, raw))
+        if param.is_quantized:
+            clamped = max(low, min(high, math.floor(clamped + 0.5)))
+        return clamped, "clamped or quantized to native range" if clamped != raw else None
+    if param.is_quantized:
+        if high - low > 512:
+            raise ValueError("Enum range too large; use a native numeric value")
+        matches = [v for v in range(math.ceil(low), math.floor(high) + 1)
+                   if param.str_for_value(v).strip().casefold() == requested.strip().casefold()]
+        if len(matches) != 1:
+            raise ValueError("Display label is missing or ambiguous; use a native value")
+        return matches[0], None
+    target, unit = _display_number(requested)
+    samples = []
+    for i in range(9):
+        raw = low + (high - low) * i / 8
+        display, found_unit = _display_number(param.str_for_value(raw))
+        if found_unit != unit:
+            raise ValueError("Requested unit does not match this parameter")
+        samples.append(display)
+    ascending = samples[-1] > samples[0]
+    if samples[-1] == samples[0] or any(
+        (b < a if ascending else b > a) for a, b in zip(samples, samples[1:])
+    ):
+        raise ValueError("Display mapping is not monotonic; use a native numeric value")
+    if not min(samples) <= target <= max(samples):
+        raise ValueError("Display value is outside the parameter range; no change made")
+    candidates = []
+    for _ in range(32):
+        raw = (low + high) / 2
+        display, found_unit = _display_number(param.str_for_value(raw))
+        if found_unit != unit:
+            raise ValueError("Display unit changes across the range; use a native value")
+        candidates.append((abs(display - target), raw))
+        if (display < target) == ascending:
+            low = raw
+        else:
+            high = raw
+    error, raw = min(candidates)
+    if error > max(abs(target) * 0.005, 0.01):
+        raise ValueError("Cannot resolve requested display value reliably; use a native value")
+    return raw, "display conversion is approximate; check returned display"
 
 def create_instance(c_instance):
     """Create and return the AbletonMCP script instance"""
@@ -354,6 +425,7 @@ class AbletonMCP(ControlSurface):
         "delete_device": lambda s, p: s._delete_device(s._req(p, "track_index"), s._req(p, "device_index")),
         "create_take_lane": lambda s, p: s._create_take_lane(s._req(p, "track_index")),
         "set_simpler_playback_mode": lambda s, p: s._set_simpler_playback_mode(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "mode")),
+        "replace_simpler_sample": lambda s, p: s._replace_simpler_sample(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "path")),
         "set_fold_state": lambda s, p: s._set_fold_state(s._req(p, "track_index"), p.get("folded", True)),
         "try_save_project": lambda s, p: s._try_save_project(),
         "set_device_routing": lambda s, p: s._set_device_routing(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "field"), s._req(p, "display_name")),
@@ -476,7 +548,7 @@ class AbletonMCP(ControlSurface):
     def _live_version(self):
         if not hasattr(self, "_live_version_cache"):
             app = self.application()
-            self._live_version_cache = f"{app.get_major_version()}.{app.get_minor_version()}"
+            self._live_version_cache = f"{app.get_major_version()}.{app.get_minor_version()}.{app.get_bugfix_version()}"
         return self._live_version_cache
 
     def _get_session_info(self):
@@ -511,6 +583,7 @@ class AbletonMCP(ControlSurface):
                 "record_mode":       self._safe_song_property("record_mode",       bool,  False),
                 "clip_trigger_quantization": self._safe_song_property("clip_trigger_quantization", int, 4),
                 "live_version": self._live_version(),
+                "bridge_version": BRIDGE_VERSION,
             }
             return result
         except Exception as e:
@@ -1152,8 +1225,10 @@ class AbletonMCP(ControlSurface):
         param = self._resolve_parameter(device, parameter)
         if not param.is_enabled:
             raise Exception("Parameter is disabled: " + param.name)
-        param.value = max(param.min, min(param.max, float(value)))
-        result = {"device": device.name, "parameter": param.name, "value": param.value}
+        native, warning = _parameter_value(param, value)
+        param.value = native
+        result = {"device": device.name, "parameter": param.name, "value": param.value,
+                  "requested": value, "warning": warning}
         try:
             result["display"] = param.str_for_value(param.value)
         except Exception:
@@ -1779,10 +1854,38 @@ class AbletonMCP(ControlSurface):
         track.create_take_lane()
         return {"track": track.name, "take_lane_count": len(track.take_lanes)}
 
+    def _snapshot_track_ids(self, current_tracks):
+        """Keep object identities across renames/reorders, scoped to this bridge lifetime."""
+        if not hasattr(self, "_snapshot_scope"):
+            self._snapshot_scope = uuid.uuid4().hex
+            self._snapshot_track_refs = []
+            self._snapshot_next_id = 0
+        previous = self._snapshot_track_refs
+        current = []
+        for track in current_tracks:
+            identity = None
+            for old, old_identity in previous:
+                try:
+                    if track == old:
+                        identity = old_identity
+                        break
+                except (RuntimeError, ReferenceError):
+                    # Deleted Live objects may no longer allow equality checks.
+                    continue
+            if identity is None:
+                self._snapshot_next_id += 1
+                identity = self._snapshot_next_id
+            current.append((track, identity))
+        # Release references to removed tracks; identifiers are never recycled.
+        self._snapshot_track_refs = current
+        return [identity for _, identity in current]
+
     def _get_session_snapshot(self):
         song = self._song
         tracks = []
-        for i, t in enumerate(song.tracks):
+        current_tracks = list(song.tracks)
+        identities = self._snapshot_track_ids(current_tracks)
+        for i, t in enumerate(current_tracks):
             clips = sum(1 for s in t.clip_slots if s.has_clip)
             vol = None
             try:
@@ -1792,6 +1895,7 @@ class AbletonMCP(ControlSurface):
             tracks.append(
                 {
                     "index": i,
+                    "id": identities[i],
                     "name": t.name,
                     "type": (
                         "midi"
@@ -1809,6 +1913,7 @@ class AbletonMCP(ControlSurface):
                 }
             )
         return {
+            "snapshot_scope": self._snapshot_scope,
             "tempo": song.tempo,
             "time_signature": f"{song.signature_numerator}/{song.signature_denominator}",
             "is_playing": bool(song.is_playing),
@@ -1824,6 +1929,19 @@ class AbletonMCP(ControlSurface):
             raise Exception(f"Device {device_index} on track {track_index} is not a Simpler")
         device.playback_mode = int(mode)
         return {"device": device.name, "playback_mode": device.playback_mode}
+
+    def _replace_simpler_sample(self, track_index, device_index, path):
+        device = self._get_device(track_index, device_index)
+        version = tuple(int(part) for part in self._live_version().split(".")[:2])
+        if version < (12, 4) or not callable(getattr(device, "replace_sample", None)):
+            raise ValueError("Sample replacement requires Live 12.4+ and a Simpler exposing replace_sample")
+        if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
+            raise ValueError("Provide an absolute path to an existing local audio file")
+        device.replace_sample(path)
+        sample = getattr(device, "sample", None)
+        return {"device": device.name, "requested_path": path,
+                "loaded_path": getattr(sample, "file_path", None),
+                "note": "Readback may be unavailable; audition and verify in Live."}
 
     def _get_group_info(self, track_index):
         t = self._get_track(track_index)

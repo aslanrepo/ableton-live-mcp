@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `get_chain_device_parameters`: read every parameter of a device inside a rack chain
+  (indices from `get_rack_chains`), the read-side counterpart of
+  `set_chain_device_parameter`. Same payload as `get_device_parameters`.
+- `set_arrangement_clip_audio`: gain, pitch, warping and warp mode for a clip in the
+  Arrangement timeline; `get_arrangement_clips` now reports each clip's `index`,
+  `pitch_coarse`, `pitch_fine` and `warping`. 158 tools total.
+
 ## 1.8.0 — 2026-09-05
 
 - Dedicated Codex setup guide with a version-pinned local MCP connection.

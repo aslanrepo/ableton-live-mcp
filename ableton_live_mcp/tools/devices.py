@@ -192,11 +192,35 @@ def get_return_device_parameters(ctx: Context, return_index: int, device_index: 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_rack_chains(ctx: Context, track_index: int, device_index: int) -> str:
     """List an Instrument/Effect Rack's chains and the devices inside each -
-    previously unreachable nested devices. Use set_chain_device_parameter to
-    control them."""
+    previously unreachable nested devices. Use get_chain_device_parameters to
+    read them and set_chain_device_parameter to control them."""
 
     r = get_ableton_connection().send_command(
         "get_rack_chains", {"track_index": track_index, "device_index": device_index}
+    )
+    return json.dumps(r, indent=2)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def get_chain_device_parameters(
+    ctx: Context,
+    track_index: int,
+    device_index: int,
+    chain_index: int,
+    chain_device_index: int,
+) -> str:
+    """List all parameters of a device INSIDE a rack chain (indices from
+    get_rack_chains): names, native values, min/max, display strings, and
+    value_items for switches. Same payload as get_device_parameters. Call
+    before set_chain_device_parameter."""
+    r = get_ableton_connection().send_command(
+        "get_chain_device_parameters",
+        {
+            "track_index": track_index,
+            "device_index": device_index,
+            "chain_index": chain_index,
+            "chain_device_index": chain_device_index,
+        },
     )
     return json.dumps(r, indent=2)
 

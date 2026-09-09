@@ -359,6 +359,7 @@ class AbletonMCP(ControlSurface):
         "set_clip_groove": lambda s, p: s._set_clip_groove(s._req(p, "track_index"), s._req(p, "clip_index"), p.get("groove_index")),
         "set_clip_loop": lambda s, p: s._set_clip_loop(s._req(p, "track_index"), s._req(p, "clip_index"), p),
         "set_clip_audio": lambda s, p: s._set_clip_audio(s._req(p, "track_index"), s._req(p, "clip_index"), p),
+        "set_arrangement_clip_audio": lambda s, p: s._set_arrangement_clip_audio(s._req(p, "track_index"), s._req(p, "arrangement_clip_index"), p),
         "quantize_clip": lambda s, p: s._quantize_clip(s._req(p, "track_index"), s._req(p, "clip_index"), p.get("grid", "sixteenth"), p.get("amount", 1.0)),
         "fire_clip": lambda s, p: s._fire_clip(s._req(p, "track_index"), s._req(p, "clip_index")),
         "stop_clip": lambda s, p: s._stop_clip(s._req(p, "track_index"), s._req(p, "clip_index")),
@@ -452,6 +453,7 @@ class AbletonMCP(ControlSurface):
         "get_track_routing": lambda s, p: s._get_track_routing(s._req(p, "track_index")),
         "get_clip_info": lambda s, p: s._get_clip_info(s._req(p, "track_index"), s._req(p, "clip_index")),
         "get_rack_chains": lambda s, p: s._get_rack_chains(s._req(p, "track_index"), s._req(p, "device_index")),
+        "get_chain_device_parameters": lambda s, p: s._get_chain_device_parameters(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "chain_index"), s._req(p, "chain_device_index")),
         "get_drum_pads": lambda s, p: s._get_drum_pads(s._req(p, "track_index"), s._req(p, "device_index")),
         "get_session_snapshot": lambda s, p: s._get_session_snapshot(),
         "get_group_info": lambda s, p: s._get_group_info(s._req(p, "track_index")),
@@ -951,8 +953,9 @@ class AbletonMCP(ControlSurface):
             clips = []
 
             # track.arrangement_clips is available in Live 11 / 12
-            for clip in track.arrangement_clips:
+            for index, clip in enumerate(track.arrangement_clips):
                 clips.append({
+                    "index": index,
                     "name": clip.name,
                     "start_time": clip.start_time,
                     "end_time": clip.end_time,
@@ -961,7 +964,10 @@ class AbletonMCP(ControlSurface):
                     "is_midi_clip": clip.is_midi_clip,
                     "is_audio_clip": clip.is_audio_clip,
                     "is_playing": clip.is_playing,
-                    "file_path": getattr(clip, "file_path", None) if clip.is_audio_clip else None
+                    "file_path": getattr(clip, "file_path", None) if clip.is_audio_clip else None,
+                    "pitch_coarse": clip.pitch_coarse if clip.is_audio_clip else None,
+                    "pitch_fine": clip.pitch_fine if clip.is_audio_clip else None,
+                    "warping": clip.warping if clip.is_audio_clip else None,
                 })
 
             return {
@@ -1237,6 +1243,9 @@ class AbletonMCP(ControlSurface):
 
     def _get_device_parameters(self, track_index, device_index, track_type="track"):
         device = self._get_device(track_index, device_index, track_type)
+        return self._describe_device_parameters(device)
+
+    def _describe_device_parameters(self, device):
         params = []
         for i, p in enumerate(device.parameters):
             entry = {"index": i, "name": p.name, "value": p.value,
@@ -1347,6 +1356,20 @@ class AbletonMCP(ControlSurface):
     # -- audio clip properties --
     def _set_clip_audio(self, track_index, clip_index, params):
         clip = self._get_clip(track_index, clip_index)
+        return self._apply_clip_audio(clip, params)
+
+    def _get_arrangement_clip(self, track_index, arrangement_clip_index):
+        track = self._get_track(track_index)
+        clips = list(track.arrangement_clips)
+        if arrangement_clip_index < 0 or arrangement_clip_index >= len(clips):
+            raise IndexError("Arrangement clip index out of range")
+        return clips[arrangement_clip_index]
+
+    def _set_arrangement_clip_audio(self, track_index, arrangement_clip_index, params):
+        clip = self._get_arrangement_clip(track_index, arrangement_clip_index)
+        return self._apply_clip_audio(clip, params)
+
+    def _apply_clip_audio(self, clip, params):
         if not clip.is_audio_clip:
             raise Exception("Not an audio clip")
         applied = {}
@@ -2146,8 +2169,7 @@ class AbletonMCP(ControlSurface):
                                        for di, d in enumerate(chain.devices)]})
         return {"rack": device.name, "chains": chains}
 
-    def _set_chain_device_parameter(self, track_index, device_index, chain_index,
-                                    chain_device_index, parameter, value):
+    def _get_chain_device(self, track_index, device_index, chain_index, chain_device_index):
         rack = self._get_device(track_index, device_index)
         if not getattr(rack, "can_have_chains", False):
             raise Exception(f"'{rack.name}' is not a rack")
@@ -2157,7 +2179,18 @@ class AbletonMCP(ControlSurface):
         devices = chains[chain_index].devices
         if not 0 <= chain_device_index < len(devices):
             raise IndexError("Chain device index out of range")
-        device = devices[chain_device_index]
+        return devices[chain_device_index]
+
+    def _get_chain_device_parameters(self, track_index, device_index, chain_index,
+                                     chain_device_index):
+        device = self._get_chain_device(track_index, device_index, chain_index,
+                                        chain_device_index)
+        return self._describe_device_parameters(device)
+
+    def _set_chain_device_parameter(self, track_index, device_index, chain_index,
+                                    chain_device_index, parameter, value):
+        device = self._get_chain_device(track_index, device_index, chain_index,
+                                        chain_device_index)
         param = self._resolve_parameter(device, parameter)
         param.value = max(param.min, min(param.max, float(value)))
         return {"device": device.name, "parameter": param.name, "value": param.value}

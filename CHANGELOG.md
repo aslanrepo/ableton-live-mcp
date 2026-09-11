@@ -7,7 +7,10 @@
   `set_chain_device_parameter`. Same payload as `get_device_parameters`.
 - `set_arrangement_clip_audio`: gain, pitch, warping and warp mode for a clip in the
   Arrangement timeline; `get_arrangement_clips` now reports each clip's `index`,
-  `pitch_coarse`, `pitch_fine` and `warping`. 158 tools total.
+  `pitch_coarse`, `pitch_fine` and `warping`.
+- `get_arrangement_clip_notes` and `detect_arrangement_clip_key`: read the notes of, and
+  detect the key of, a MIDI clip in the Arrangement timeline (index from
+  `get_arrangement_clips`); previously only Session slots were readable. 160 tools total.
 
 ## 1.8.0 — 2026-09-05
 

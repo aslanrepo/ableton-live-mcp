@@ -440,6 +440,7 @@ class AbletonMCP(ControlSurface):
         "get_return_tracks": lambda s, p: s._get_return_tracks(),
         "get_arrangement_clips": lambda s, p: s._get_arrangement_clips(s._req(p, "track_index")),
         "get_clip_notes": lambda s, p: s._get_clip_notes(s._req(p, "track_index"), s._req(p, "clip_index")),
+        "get_arrangement_clip_notes": lambda s, p: s._get_arrangement_clip_notes(s._req(p, "track_index"), s._req(p, "arrangement_clip_index")),
         "get_grooves": lambda s, p: s._get_grooves(),
         "get_device_parameters": lambda s, p: s._get_device_parameters(s._req(p, "track_index"), s._req(p, "device_index")),
         "get_return_device_parameters": lambda s, p: s._get_device_parameters(s._req(p, "return_index"), s._req(p, "device_index"), track_type="return"),
@@ -1277,6 +1278,15 @@ class AbletonMCP(ControlSurface):
             raise Exception("Not a MIDI clip")
         notes = self._read_all_notes(clip)
         return {"clip_name": clip.name, "length": clip.length,
+                "note_count": len(notes), "notes": notes}
+
+    def _get_arrangement_clip_notes(self, track_index, arrangement_clip_index):
+        clip = self._get_arrangement_clip(track_index, arrangement_clip_index)
+        if not clip.is_midi_clip:
+            raise Exception("Not a MIDI clip")
+        notes = self._read_all_notes(clip)
+        return {"clip_name": clip.name, "length": clip.length,
+                "start_time": clip.start_time, "end_time": clip.end_time,
                 "note_count": len(notes), "notes": notes}
 
     # ── Grooves, audio clips, routing, automation, and clip ops ───────

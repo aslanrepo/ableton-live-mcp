@@ -158,6 +158,23 @@ def get_clip_notes(ctx: Context, track_index: TrackIndex, clip_index: ClipIndex)
     return json.dumps(result, indent=2)
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def get_arrangement_clip_notes(
+    ctx: Context, track_index: TrackIndex, arrangement_clip_index: int
+) -> str:
+    """Return every MIDI note in a MIDI clip placed in the Arrangement timeline.
+
+    `arrangement_clip_index` is the `index` reported by get_arrangement_clips.
+    Same payload as get_clip_notes plus the clip's start_time and end_time in
+    beats. Read-only; fails for an audio clip.
+    """
+    result = get_ableton_connection().send_command(
+        "get_arrangement_clip_notes",
+        {"track_index": track_index, "arrangement_clip_index": arrangement_clip_index},
+    )
+    return json.dumps(result, indent=2)
+
+
 # ── Grooves, quantize, audio clips, returns, automation, and clip ops ──
 
 

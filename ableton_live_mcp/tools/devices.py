@@ -12,6 +12,7 @@ from ._util import (
     DeviceIndex,
     DeviceParameter,
     DeviceParameterValue,
+    RackTrackType,
     ReturnIndex,
     ToggleState,
     TrackIndex,
@@ -190,13 +191,18 @@ def get_return_device_parameters(ctx: Context, return_index: int, device_index: 
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def get_rack_chains(ctx: Context, track_index: int, device_index: int) -> str:
+def get_rack_chains(
+    ctx: Context, track_index: int, device_index: int, track_type: RackTrackType = "track"
+) -> str:
     """List an Instrument/Effect Rack's chains and the devices inside each -
     previously unreachable nested devices. Use get_chain_device_parameters to
-    read them and set_chain_device_parameter to control them."""
+    read them and set_chain_device_parameter to control them. Racks on a return
+    track or on the Master track are reached with track_type='return' /
+    'master' (for 'master' track_index is ignored; pass 0)."""
 
     r = get_ableton_connection().send_command(
-        "get_rack_chains", {"track_index": track_index, "device_index": device_index}
+        "get_rack_chains",
+        {"track_index": track_index, "device_index": device_index, "track_type": track_type},
     )
     return json.dumps(r, indent=2)
 
@@ -208,11 +214,13 @@ def get_chain_device_parameters(
     device_index: int,
     chain_index: int,
     chain_device_index: int,
+    track_type: RackTrackType = "track",
 ) -> str:
     """List all parameters of a device INSIDE a rack chain (indices from
     get_rack_chains): names, native values, min/max, display strings, and
     value_items for switches. Same payload as get_device_parameters. Call
-    before set_chain_device_parameter."""
+    before set_chain_device_parameter. Use the same track_type you gave
+    get_rack_chains ('track', 'return' or 'master')."""
     r = get_ableton_connection().send_command(
         "get_chain_device_parameters",
         {
@@ -220,6 +228,7 @@ def get_chain_device_parameters(
             "device_index": device_index,
             "chain_index": chain_index,
             "chain_device_index": chain_device_index,
+            "track_type": track_type,
         },
     )
     return json.dumps(r, indent=2)
@@ -234,9 +243,11 @@ def set_chain_device_parameter(
     chain_device_index: int,
     parameter: str | int,
     value: float,
+    track_type: RackTrackType = "track",
 ) -> str:
     """Set a parameter on a device INSIDE a rack chain (indices from
-    get_rack_chains). Values clamp to the parameter's native range."""
+    get_rack_chains). Values clamp to the parameter's native range. Use the
+    same track_type you gave get_rack_chains ('track', 'return' or 'master')."""
     return _set_param(
         "set_chain_device_parameter",
         "",
@@ -246,6 +257,7 @@ def set_chain_device_parameter(
         chain_device_index=chain_device_index,
         parameter=parameter,
         value=value,
+        track_type=track_type,
     )
 
 

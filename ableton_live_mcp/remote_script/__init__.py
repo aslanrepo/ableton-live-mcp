@@ -412,7 +412,7 @@ class AbletonMCP(ControlSurface):
         "set_track_monitoring": lambda s, p: s._set_track_monitoring(s._req(p, "track_index"), s._req(p, "state")),
         "clip_op": lambda s, p: s._clip_op(s._req(p, "track_index"), s._req(p, "clip_index"), s._req(p, "op"), p.get("params")),
         "set_clip_signature": lambda s, p: s._set_clip_signature(s._req(p, "track_index"), s._req(p, "clip_index"), s._req(p, "numerator"), s._req(p, "denominator")),
-        "set_chain_device_parameter": lambda s, p: s._set_chain_device_parameter(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "chain_index"), s._req(p, "chain_device_index"), s._req(p, "parameter"), s._req(p, "value")),
+        "set_chain_device_parameter": lambda s, p: s._set_chain_device_parameter(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "chain_index"), s._req(p, "chain_device_index"), s._req(p, "parameter"), s._req(p, "value"), p.get("track_type", "track")),
         "set_drum_pad": lambda s, p: s._set_drum_pad(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "note"), {k: p[k] for k in ("mute", "solo", "name") if k in p}),
         "rack_variation": lambda s, p: s._rack_variation(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "action"), p.get("index")),
         "set_crossfader": lambda s, p: s._set_crossfader(s._req(p, "value")),
@@ -453,8 +453,8 @@ class AbletonMCP(ControlSurface):
         "get_locators": lambda s, p: s._get_locators(),
         "get_track_routing": lambda s, p: s._get_track_routing(s._req(p, "track_index")),
         "get_clip_info": lambda s, p: s._get_clip_info(s._req(p, "track_index"), s._req(p, "clip_index")),
-        "get_rack_chains": lambda s, p: s._get_rack_chains(s._req(p, "track_index"), s._req(p, "device_index")),
-        "get_chain_device_parameters": lambda s, p: s._get_chain_device_parameters(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "chain_index"), s._req(p, "chain_device_index")),
+        "get_rack_chains": lambda s, p: s._get_rack_chains(s._req(p, "track_index"), s._req(p, "device_index"), p.get("track_type", "track")),
+        "get_chain_device_parameters": lambda s, p: s._get_chain_device_parameters(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "chain_index"), s._req(p, "chain_device_index"), p.get("track_type", "track")),
         "get_drum_pads": lambda s, p: s._get_drum_pads(s._req(p, "track_index"), s._req(p, "device_index")),
         "get_session_snapshot": lambda s, p: s._get_session_snapshot(),
         "get_group_info": lambda s, p: s._get_group_info(s._req(p, "track_index")),
@@ -2168,8 +2168,15 @@ class AbletonMCP(ControlSurface):
         return {"signature": f"{numerator}/{denominator}"}
 
     # ── additional commands ──
-    def _get_rack_chains(self, track_index, device_index):
-        device = self._get_device(track_index, device_index)
+    _RACK_TRACK_TYPES = ("track", "return", "master")
+
+    def _rack_track_type(self, track_type):
+        if track_type not in self._RACK_TRACK_TYPES:
+            raise ValueError("track_type must be one of 'track', 'return', 'master'")
+        return track_type
+
+    def _get_rack_chains(self, track_index, device_index, track_type="track"):
+        device = self._get_device(track_index, device_index, self._rack_track_type(track_type))
         if not getattr(device, "can_have_chains", False):
             raise Exception(f"'{device.name}' is not a rack")
         chains = []
@@ -2179,8 +2186,9 @@ class AbletonMCP(ControlSurface):
                                        for di, d in enumerate(chain.devices)]})
         return {"rack": device.name, "chains": chains}
 
-    def _get_chain_device(self, track_index, device_index, chain_index, chain_device_index):
-        rack = self._get_device(track_index, device_index)
+    def _get_chain_device(self, track_index, device_index, chain_index, chain_device_index,
+                          track_type="track"):
+        rack = self._get_device(track_index, device_index, self._rack_track_type(track_type))
         if not getattr(rack, "can_have_chains", False):
             raise Exception(f"'{rack.name}' is not a rack")
         chains = rack.chains
@@ -2192,15 +2200,15 @@ class AbletonMCP(ControlSurface):
         return devices[chain_device_index]
 
     def _get_chain_device_parameters(self, track_index, device_index, chain_index,
-                                     chain_device_index):
+                                     chain_device_index, track_type="track"):
         device = self._get_chain_device(track_index, device_index, chain_index,
-                                        chain_device_index)
+                                        chain_device_index, track_type)
         return self._describe_device_parameters(device)
 
     def _set_chain_device_parameter(self, track_index, device_index, chain_index,
-                                    chain_device_index, parameter, value):
+                                    chain_device_index, parameter, value, track_type="track"):
         device = self._get_chain_device(track_index, device_index, chain_index,
-                                        chain_device_index)
+                                        chain_device_index, track_type)
         param = self._resolve_parameter(device, parameter)
         param.value = max(param.min, min(param.max, float(value)))
         return {"device": device.name, "parameter": param.name, "value": param.value}

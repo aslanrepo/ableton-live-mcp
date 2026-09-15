@@ -1,6 +1,6 @@
 """Shared helpers and JSON-schema types for tool modules."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -22,6 +22,15 @@ SceneIndex = Annotated[
 ReturnIndex = Annotated[
     int,
     Field(ge=0, description="Zero-based return-track index; 0 is Return A."),
+]
+RackTrackType = Annotated[
+    Literal["track", "return", "master"],
+    Field(
+        description=(
+            "Which track list track_index refers to: 'track' (regular tracks, the default), "
+            "'return' (0 is Return A) or 'master' (the Master/Main track; track_index is ignored)."
+        )
+    ),
 ]
 DeviceIndex = Annotated[
     int,

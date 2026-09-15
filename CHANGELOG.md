@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `get_rack_chains`, `get_chain_device_parameters` and `set_chain_device_parameter` take
+  an optional `track_type` ('track', 'return' or 'master') so devices inside a rack on a
+  return track or on the Master track are readable and controllable; previously only
+  regular tracks were accepted.
 - `get_chain_device_parameters`: read every parameter of a device inside a rack chain
   (indices from `get_rack_chains`), the read-side counterpart of
   `set_chain_device_parameter`. Same payload as `get_device_parameters`.

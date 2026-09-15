@@ -7,7 +7,16 @@ from mcp.types import ToolAnnotations
 
 from ..app import mcp
 from ..connection import get_ableton_connection
-from ._util import CrossfadeAssignment, PanValue, ToggleState, TrackIndex, TrackInsertIndex
+from ._util import (
+    ChainIndex,
+    CrossfadeAssignment,
+    PanValue,
+    RackDeviceIndex,
+    RackTrackType,
+    ToggleState,
+    TrackIndex,
+    TrackInsertIndex,
+)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
@@ -264,12 +273,23 @@ def set_crossfade_assign(ctx: Context, track_index: TrackIndex, assign: Crossfad
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
-def delete_device(ctx: Context, track_index: int, device_index: int) -> str:
+def delete_device(
+    ctx: Context,
+    track_index: int,
+    device_index: int,
+    track_type: RackTrackType = "track",
+    rack_device_index: RackDeviceIndex = None,
+    chain_index: ChainIndex = None,
+) -> str:
     """Delete a device from a track's chain by its position (0-based). Shifts the
-    indices of later devices, so re-read the chain afterwards."""
-    r = get_ableton_connection().send_command(
-        "delete_device", {"track_index": track_index, "device_index": device_index}
-    )
+    indices of later devices, so re-read the chain afterwards. track_type reaches
+    return tracks and the Master track; rack_device_index + chain_index target a
+    chain inside a rack on that track instead of the track itself."""
+    wire = {"track_index": track_index, "device_index": device_index, "track_type": track_type}
+    if rack_device_index is not None or chain_index is not None:
+        wire["rack_device_index"] = rack_device_index
+        wire["chain_index"] = chain_index
+    r = get_ableton_connection().send_command("delete_device", wire)
     return f"Deleted device; '{r.get('track')}' now has {r.get('device_count')} devices"
 
 

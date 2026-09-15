@@ -374,9 +374,9 @@ class AbletonMCP(ControlSurface):
         "undo": lambda s, p: s._undo(),
         "redo": lambda s, p: s._redo(),
         "create_locator": lambda s, p: s._create_locator(p.get("name")),
-        "load_browser_item": lambda s, p: s._load_browser_item(s._req(p, "track_index"), s._req(p, "item_uri")),
-        "load_device_to_return": lambda s, p: s._load_device_to_return(s._req(p, "return_index"), s._req(p, "item_uri")),
-        "load_device_to_master": lambda s, p: s._load_device_to_master(s._req(p, "item_uri")),
+        "load_browser_item": lambda s, p: s._load_browser_item(s._req(p, "track_index"), s._req(p, "item_uri"), p.get("after_device_index")),
+        "load_device_to_return": lambda s, p: s._load_device_to_return(s._req(p, "return_index"), s._req(p, "item_uri"), p.get("after_device_index")),
+        "load_device_to_master": lambda s, p: s._load_device_to_master(s._req(p, "item_uri"), p.get("after_device_index")),
         "set_device_parameter": lambda s, p: s._set_device_parameter(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "parameter"), s._req(p, "value")),
         "set_return_device_parameter": lambda s, p: s._set_device_parameter(s._req(p, "return_index"), s._req(p, "device_index"), s._req(p, "parameter"), s._req(p, "value"), track_type="return"),
         "set_master_device_parameter": lambda s, p: s._set_device_parameter(0, s._req(p, "device_index"), s._req(p, "parameter"), s._req(p, "value"), track_type="master"),
@@ -423,7 +423,10 @@ class AbletonMCP(ControlSurface):
         "jump_by": lambda s, p: s._jump_by(s._req(p, "beats")),
         "jump_to_cue": lambda s, p: s._jump_to_cue(p.get("direction", 1)),
         "set_ableton_link": lambda s, p: s._set_ableton_link(p.get("enabled", True)),
-        "delete_device": lambda s, p: s._delete_device(s._req(p, "track_index"), s._req(p, "device_index")),
+        "delete_device": lambda s, p: s._delete_device(s._req(p, "track_index"), s._req(p, "device_index"), p.get("track_type", "track"), p.get("rack_device_index"), p.get("chain_index")),
+        "insert_device": lambda s, p: s._insert_device(s._req(p, "track_index"), s._req(p, "device_name"), p.get("index"), p.get("track_type", "track"), p.get("rack_device_index"), p.get("chain_index")),
+        "move_device": lambda s, p: s._move_device(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "new_index"), p.get("track_type", "track"), p.get("rack_device_index"), p.get("chain_index")),
+        "replace_device": lambda s, p: s._replace_device(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "device_name"), p.get("track_type", "track"), p.get("copy_parameters", True), p.get("rack_device_index"), p.get("chain_index")),
         "create_take_lane": lambda s, p: s._create_take_lane(s._req(p, "track_index")),
         "set_simpler_playback_mode": lambda s, p: s._set_simpler_playback_mode(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "mode")),
         "replace_simpler_sample": lambda s, p: s._replace_simpler_sample(s._req(p, "track_index"), s._req(p, "device_index"), s._req(p, "path")),
@@ -1025,16 +1028,17 @@ class AbletonMCP(ControlSurface):
 
     # ── Browser implementations ───────────────────────────────────────────────
 
-    def _load_browser_item(self, track_index, item_uri):
+    def _load_browser_item(self, track_index, item_uri, after_device_index=None):
         """Load a browser item onto a regular track by its URI"""
         try:
             track = self._get_track(track_index)
-            item = self._load_uri_onto_track(track, item_uri)
+            item, device_index = self._load_uri_onto_track(track, item_uri, after_device_index)
             return {
                 "loaded": True,
                 "item_name": item.name,
                 "track_name": track.name,
                 "uri": item_uri,
+                "device_index": device_index,
             }
         except Exception as e:
             self.log_message(f"Error loading browser item: {str(e)}")
@@ -1530,23 +1534,59 @@ class AbletonMCP(ControlSurface):
         device.parameters[0].value = 1.0 if enabled else 0.0
         return {"device": device.name, "enabled": bool(enabled)}
 
-    def _load_uri_onto_track(self, track, item_uri):
-        """Select a track and load a browser item onto it by URI (shared helper)."""
+    def _load_uri_onto_track(self, track, item_uri, after_device_index=None):
+        """Select a track and load a browser item onto it by URI (shared helper).
+
+        Live inserts a loaded device right after the selected device of the
+        selected track (instruments always take the instrument slot). With
+        after_device_index the device at that position is selected first, so
+        the new device lands at after_device_index + 1; without it the last
+        device is selected, so the new device is appended. Returns the item and
+        the index the new device ended up at (None if it could not be located).
+        """
         app = self.application()
         item = self._find_browser_item_by_uri(app.browser, item_uri)
         if not item:
             raise ValueError(f"Browser item with URI '{item_uri}' not found")
+        devices = list(track.devices)
+        if after_device_index is not None:
+            if not 0 <= after_device_index < len(devices):
+                raise IndexError("after_device_index out of range")
+            anchor = devices[after_device_index]
+        else:
+            anchor = devices[-1] if devices else None
+        before = [d.name for d in devices]
         self._song.view.selected_track = track
+        if anchor is not None:
+            self._song.view.select_device(anchor)
         app.browser.load_item(item)
-        return item
+        after = [d.name for d in track.devices]
+        return item, self._inserted_index(before, after)
 
-    def _load_device_to_return(self, return_index, item_uri):
-        item = self._load_uri_onto_track(self._resolve_track(return_index, "return"), item_uri)
-        return {"loaded": True, "item_name": item.name, "return": return_index}
+    @staticmethod
+    def _inserted_index(before, after):
+        """Index of the device that appeared (or replaced one) between two name lists."""
+        if len(after) == len(before) + 1:
+            for i in range(len(after)):
+                if after[:i] == before[:i] and after[i + 1:] == before[i:]:
+                    return i
+        if len(after) == len(before):
+            for i, (a, b) in enumerate(zip(before, after)):
+                if a != b:
+                    return i
+        return None
 
-    def _load_device_to_master(self, item_uri):
-        item = self._load_uri_onto_track(self._song.master_track, item_uri)
-        return {"loaded": True, "item_name": item.name, "track": "master"}
+    def _load_device_to_return(self, return_index, item_uri, after_device_index=None):
+        track = self._resolve_track(return_index, "return")
+        item, device_index = self._load_uri_onto_track(track, item_uri, after_device_index)
+        return {"loaded": True, "item_name": item.name, "return": return_index,
+                "device_index": device_index}
+
+    def _load_device_to_master(self, item_uri, after_device_index=None):
+        item, device_index = self._load_uri_onto_track(self._song.master_track, item_uri,
+                                                       after_device_index)
+        return {"loaded": True, "item_name": item.name, "track": "master",
+                "device_index": device_index}
 
     # -- note-level editing --
     def _edit_notes(self, track_index, clip_index, add, remove):
@@ -1875,12 +1915,119 @@ class AbletonMCP(ControlSurface):
         self._song.is_ableton_link_enabled = bool(enabled)
         return {"ableton_link_enabled": self._song.is_ableton_link_enabled}
 
-    def _delete_device(self, track_index, device_index):
-        track = self._get_track(track_index)
-        if device_index < 0 or device_index >= len(track.devices):
+    def _resolve_container(self, track_index, track_type="track", rack_device_index=None,
+                           chain_index=None):
+        """The object whose .devices list we edit: a track (regular/return/master) or,
+        when rack_device_index and chain_index are given, a chain inside that rack."""
+        track = self._resolve_track(track_index, self._rack_track_type(track_type))
+        if rack_device_index is None and chain_index is None:
+            return track, track.name
+        if rack_device_index is None or chain_index is None:
+            raise ValueError("rack_device_index and chain_index go together")
+        devices = track.devices
+        if not 0 <= rack_device_index < len(devices):
+            raise IndexError("rack_device_index out of range")
+        rack = devices[rack_device_index]
+        if not getattr(rack, "can_have_chains", False):
+            raise Exception(f"'{rack.name}' is not a rack")
+        chains = rack.chains
+        if not 0 <= chain_index < len(chains):
+            raise IndexError("chain_index out of range")
+        chain = chains[chain_index]
+        return chain, f"{track.name} > {rack.name} > {chain.name}"
+
+    def _delete_device(self, track_index, device_index, track_type="track",
+                       rack_device_index=None, chain_index=None):
+        container, label = self._resolve_container(track_index, track_type,
+                                                   rack_device_index, chain_index)
+        if device_index < 0 or device_index >= len(container.devices):
             raise IndexError("Device index out of range")
-        track.delete_device(device_index)
-        return {"track": track.name, "device_count": len(track.devices)}
+        container.delete_device(device_index)
+        return {"track": label, "device_count": len(container.devices)}
+
+    def _insert_device(self, track_index, device_name, index=None, track_type="track",
+                       rack_device_index=None, chain_index=None):
+        """Track.insert_device / Chain.insert_device (Live 12.3+): the device named as in
+        the browser lands at `index` (end of the chain when None). Live still keeps
+        instruments in the instrument slot and MIDI effects before it."""
+        container, label = self._resolve_container(track_index, track_type,
+                                                   rack_device_index, chain_index)
+        if not hasattr(container, "insert_device"):
+            raise Exception("insert_device needs Live 12.3 or newer")
+        before = [d.name for d in container.devices]
+        if index is None:
+            container.insert_device(device_name)
+        else:
+            if not 0 <= index <= len(before):
+                raise IndexError("index out of range (0..device_count)")
+            container.insert_device(device_name, index)
+        after = [d.name for d in container.devices]
+        new_index = self._inserted_index(before, after)
+        return {"track": label, "device": after[new_index] if new_index is not None else device_name,
+                "device_index": new_index, "device_count": len(after)}
+
+    def _move_device(self, track_index, device_index, new_index, track_type="track",
+                     rack_device_index=None, chain_index=None):
+        """Song.move_device(device, container, position). Live counts `position` with the
+        device still in the list (Push 2 moves one step right with index + 2), so a final
+        index f maps to f + 1 when moving right and f when moving left."""
+        container, label = self._resolve_container(track_index, track_type,
+                                                   rack_device_index, chain_index)
+        if not hasattr(self._song, "move_device"):
+            raise Exception("move_device needs Live 12.3 or newer")
+        devices = list(container.devices)
+        if not 0 <= device_index < len(devices):
+            raise IndexError("device_index out of range")
+        if not 0 <= new_index < len(devices):
+            raise IndexError("new_index out of range")
+        device = devices[device_index]
+        if new_index != device_index:
+            live_index = new_index + 1 if new_index > device_index else new_index
+            self._song.move_device(device, container, live_index)
+        final = list(container.devices).index(device)
+        return {"track": label, "device": device.name, "device_index": final,
+                "order": [d.name for d in container.devices]}
+
+    def _replace_device(self, track_index, device_index, device_name, track_type="track",
+                        copy_parameters=True, rack_device_index=None, chain_index=None):
+        """Insert the new device right after the old one, copy same-named parameters
+        (clamped to the new ranges), delete the old one: the replacement keeps the
+        position. Parameters whose names differ are reported, not guessed."""
+        container, label = self._resolve_container(track_index, track_type,
+                                                   rack_device_index, chain_index)
+        if not hasattr(container, "insert_device"):
+            raise Exception("replace_device needs Live 12.3 or newer")
+        devices = list(container.devices)
+        if not 0 <= device_index < len(devices):
+            raise IndexError("device_index out of range")
+        old = devices[device_index]
+        old_name = old.name
+        old_params = {}
+        for prm in old.parameters:
+            if prm.name != "Device On":
+                old_params[prm.name] = prm.value
+        before = [d.name for d in devices]
+        container.insert_device(device_name, device_index + 1)
+        after = [d.name for d in container.devices]
+        new_index = self._inserted_index(before, after)
+        if new_index is None:
+            raise Exception(f"'{device_name}' did not appear in the chain; nothing deleted")
+        new = list(container.devices)[new_index]
+        copied, not_copied = [], []
+        if copy_parameters:
+            new_names = set()
+            for prm in new.parameters:
+                new_names.add(prm.name)
+                if prm.name in old_params and prm.is_enabled:
+                    value = old_params[prm.name]
+                    prm.value = max(prm.min, min(prm.max, float(value)))
+                    copied.append(prm.name)
+            not_copied = [n for n in old_params if n not in new_names]
+        # the old device sits before the new one, so its index is unchanged
+        container.delete_device(device_index)
+        final = list(container.devices).index(new)
+        return {"track": label, "replaced": old_name, "with": new.name, "device_index": final,
+                "copied": copied, "not_copied": not_copied}
 
     def _create_take_lane(self, track_index):
         track = self._get_track(track_index)

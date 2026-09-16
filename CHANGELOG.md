@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- `insert_device`, `move_device` and `replace_device`: place a Live device at any 0-based
+  position (Live 12.3+ `Track.insert_device` / `Chain.insert_device`), reorder devices
+  (`Song.move_device`), or swap a device for another keeping its position and copying
+  same-named parameters. `delete_device` and the three take `track_type` and an optional
+  rack chain target. 163 tools total.
+- `load_instrument_or_effect`, `load_device_to_return` and `load_device_to_master` take an
+  optional `after_device_index` to insert the new device right after a given position
+  instead of appending; the reply reports the index the device landed at. Without it the
+  last device is selected before loading, so appending is now deterministic.
+- `get_rack_chains`, `get_chain_device_parameters` and `set_chain_device_parameter` take
+  an optional `track_type` ('track', 'return' or 'master') so devices inside a rack on a
+  return track or on the Master track are readable and controllable; previously only
+  regular tracks were accepted.
+- `get_chain_device_parameters`: read every parameter of a device inside a rack chain
+  (indices from `get_rack_chains`), the read-side counterpart of
+  `set_chain_device_parameter`. Same payload as `get_device_parameters`.
+- `set_arrangement_clip_audio`: gain, pitch, warping and warp mode for a clip in the
+  Arrangement timeline; `get_arrangement_clips` now reports each clip's `index`,
+  `pitch_coarse`, `pitch_fine` and `warping`.
+- `get_arrangement_clip_notes` and `detect_arrangement_clip_key`: read the notes of, and
+  detect the key of, a MIDI clip in the Arrangement timeline (index from
+  `get_arrangement_clips`); previously only Session slots were readable.
+
 ## 1.8.0 — 2026-09-05
 
 - Dedicated Codex setup guide with a version-pinned local MCP connection.

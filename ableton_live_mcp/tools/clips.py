@@ -158,6 +158,23 @@ def get_clip_notes(ctx: Context, track_index: TrackIndex, clip_index: ClipIndex)
     return json.dumps(result, indent=2)
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def get_arrangement_clip_notes(
+    ctx: Context, track_index: TrackIndex, arrangement_clip_index: int
+) -> str:
+    """Return every MIDI note in a MIDI clip placed in the Arrangement timeline.
+
+    `arrangement_clip_index` is the `index` reported by get_arrangement_clips.
+    Same payload as get_clip_notes plus the clip's start_time and end_time in
+    beats. Read-only; fails for an audio clip.
+    """
+    result = get_ableton_connection().send_command(
+        "get_arrangement_clip_notes",
+        {"track_index": track_index, "arrangement_clip_index": arrangement_clip_index},
+    )
+    return json.dumps(result, indent=2)
+
+
 # ── Grooves, quantize, audio clips, returns, automation, and clip ops ──
 
 
@@ -218,6 +235,37 @@ def set_clip_audio(
         raise ValueError("Provide at least one property to set")
     r = get_ableton_connection().send_command(
         "set_clip_audio", {"track_index": track_index, "clip_index": clip_index, **opts}
+    )
+    return f"Applied: {json.dumps(r)}"
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
+def set_arrangement_clip_audio(
+    ctx: Context,
+    track_index: int,
+    arrangement_clip_index: int,
+    gain: float | None = None,
+    pitch_coarse: int | None = None,
+    pitch_fine: float | None = None,
+    warping: bool | None = None,
+    warp_mode: int | None = None,
+) -> str:
+    """Set audio properties of a clip in the Arrangement timeline (index from
+    get_arrangement_clips). gain 0-1, pitch_coarse semitones (-48..48), pitch_fine
+    cents, warping on/off, warp_mode 0=Beats 1=Tones 2=Texture 3=Re-Pitch 4=Complex
+    6=Complex Pro. With warping off, pitch also changes playback speed."""
+    opts = params(
+        gain=gain,
+        pitch_coarse=pitch_coarse,
+        pitch_fine=pitch_fine,
+        warping=warping,
+        warp_mode=warp_mode,
+    )
+    if not opts:
+        raise ValueError("Provide at least one property to set")
+    r = get_ableton_connection().send_command(
+        "set_arrangement_clip_audio",
+        {"track_index": track_index, "arrangement_clip_index": arrangement_clip_index, **opts},
     )
     return f"Applied: {json.dumps(r)}"
 

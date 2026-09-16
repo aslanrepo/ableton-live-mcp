@@ -197,6 +197,33 @@ def detect_clip_key(
     )
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def detect_arrangement_clip_key(
+    ctx: Context, track_index: int, arrangement_clip_index: int, weight: str = "duration"
+) -> str:
+    """Detect the key/scale of one MIDI clip placed in the Arrangement timeline
+    (Krumhansl-Kessler). `arrangement_clip_index` is the `index` reported by
+    get_arrangement_clips. Same result shape and `weight` options as
+    detect_clip_key. Reads only; changes nothing."""
+    raw = get_ableton_connection().send_command(
+        "get_arrangement_clip_notes",
+        {"track_index": track_index, "arrangement_clip_index": arrangement_clip_index},
+    )
+    notes = _normalize_notes(raw.get("notes", []))
+    result = detect_key(notes, weight=weight)
+    return json.dumps(
+        {
+            "track_index": track_index,
+            "arrangement_clip_index": arrangement_clip_index,
+            "clip_name": raw.get("clip_name"),
+            "start_time": raw.get("start_time"),
+            "end_time": raw.get("end_time"),
+            **result,
+        },
+        indent=2,
+    )
+
+
 def _pool_track_notes(conn, track_index, info):
     """Pool the notes of every Session clip on a track (skipping empty/audio slots).
     `info` is the track's get_track_info result. Returns (notes, clips_used)."""

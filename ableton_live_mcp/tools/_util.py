@@ -1,6 +1,6 @@
 """Shared helpers and JSON-schema types for tool modules."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -23,9 +23,43 @@ ReturnIndex = Annotated[
     int,
     Field(ge=0, description="Zero-based return-track index; 0 is Return A."),
 ]
+RackTrackType = Annotated[
+    Literal["track", "return", "master"],
+    Field(
+        description=(
+            "Which track list track_index refers to: 'track' (regular tracks, the default), "
+            "'return' (0 is Return A) or 'master' (the Master/Main track; track_index is ignored)."
+        )
+    ),
+]
 DeviceIndex = Annotated[
     int,
     Field(ge=0, description="Zero-based device position in the target track's device chain."),
+]
+RackDeviceIndex = Annotated[
+    int | None,
+    Field(
+        ge=0,
+        description=(
+            "Optional: index of a rack on the track; together with chain_index it targets "
+            "the device chain inside that rack instead of the track's own chain."
+        ),
+    ),
+]
+ChainIndex = Annotated[
+    int | None,
+    Field(ge=0, description="Optional: chain inside the rack named by rack_device_index."),
+]
+AfterDeviceIndex = Annotated[
+    int | None,
+    Field(
+        ge=0,
+        description=(
+            "Optional: zero-based index of the device to insert after; the new device lands at "
+            "this index + 1. Omit to append at the end of the chain. Instruments always take the "
+            "instrument slot, MIDI effects the MIDI section, whatever is given."
+        ),
+    ),
 ]
 TrackInsertIndex = Annotated[
     int,
